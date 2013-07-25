@@ -162,7 +162,7 @@ static int
 read_offset_from_file(const char *file_name)
 {
   FILE *fp;
-  int offset = 1;
+  int offset = -1;
 
   fp = fopen(file_name, "r");
   if (!fp) {
