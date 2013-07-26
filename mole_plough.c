@@ -296,12 +296,17 @@ write_kernel_to_file(void *dump_code, void *user_data)
   return success;
 }
 
+struct current_address {
+  void *base_address;
+  int position;
+};
 static bool
 write_to_memory(int value, void *user_data)
 {
-  int **memory = (int**)user_data;
+  struct current_address *current = (struct current_address*)user_data;
 
-  **memory = value;
+  ((int*)current->base_address)[current->position] = value;
+  current->position++;
 
   return true;
 }
@@ -309,7 +314,11 @@ write_to_memory(int value, void *user_data)
 static bool
 write_kernel_to_memory(void *dump_code, void *memory)
 {
-  return write_kernel_to(dump_code, write_to_memory, &memory);
+  struct current_address current;
+  current.base_address = memory;
+  current.position = 0;
+
+  return write_kernel_to(dump_code, write_to_memory, &current);
 }
 
 static void *
