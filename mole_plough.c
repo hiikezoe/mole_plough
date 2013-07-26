@@ -243,7 +243,6 @@ static bool
 write_kernel_to_file(void *dump_code, void *user_data)
 {
   int fd;
-  unsigned int address;
   bool success;
   const char *file_name = (const char *)user_data;
 
