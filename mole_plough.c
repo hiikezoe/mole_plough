@@ -244,7 +244,7 @@ static int dump_code[] = {
 };
 
 static bool
-write_kernel_memory(void *code_memory, const char *file_name)
+write_kernel_memory_to_file(void *code_memory, const char *file_name)
 {
   int ptmx_fd, output_fd;
   unsigned int address;
@@ -269,7 +269,7 @@ write_kernel_memory(void *code_memory, const char *file_name)
 }
 
 static bool
-dump_kernel(int offset, const char *file_name)
+dump_kernel_to_file(int offset, const char *file_name)
 {
   void *code_memory;
   int number_of_children;
@@ -294,7 +294,7 @@ dump_kernel(int offset, const char *file_name)
     }
   }
 
-  write_kernel_memory(code_memory, file_name);
+  write_kernel_memory_to_file(code_memory, file_name);
 
   perf_event_reap_child_process(number_of_children);
 
@@ -310,7 +310,7 @@ dump_kernel_image(int offset, int argc, char **argv)
   if (argc >= 3) {
     file_name = argv[2];
   }
-  return dump_kernel(offset, file_name);
+  return dump_kernel_to_file(offset, file_name);
 }
 
 static bool
