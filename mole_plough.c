@@ -39,7 +39,7 @@
 #define OFFSET_FILE      DATA_TMP_DIR "perf_event_exploit.offset"
 
 #define KERNEL_ADDRESS 0xc0008000
-#define KERNEL_SIZE    0x02000000
+#define KERNEL_SIZE    0x01800000
 
 static bool
 call_ptmx_fsync(void *user_data)
