@@ -412,7 +412,7 @@ main(int argc, char **argv)
   work_offset = read_work_offset();
   last_offset = read_last_possible_offset();
 
-  if (work_offset > 0 && last_offset > 0 && work_offset != last_offset) {
+  if (work_offset > 0 && work_offset != last_offset) {
     if (check_possible_offset(work_offset)) {
       printf("found! offset = %d\n", work_offset);
       record_offset(work_offset);
