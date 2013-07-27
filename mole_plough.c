@@ -329,6 +329,7 @@ write_kernel_to_memory(void *dump_code, void *memory)
   return write_kernel_to(dump_code, write_to_memory, &current);
 }
 
+#define MAX(x,y) (((x)>(y))?(x):(y))
 static int
 get_executable_address(void)
 {
@@ -343,9 +344,7 @@ get_executable_address(void)
   fscanf(fp, "%d", &address);
   fclose(fp);
 
-  if (abs(address - (int)&call_ptmx_fsync) < 0x1000) {
-    address += 0x2000;
-  }
+  address = MAX(address, 0x10000);
 
   return address;
 }
