@@ -11,6 +11,7 @@ LOCAL_STATIC_LIBRARIES += libdevice_database
 LOCAL_STATIC_LIBRARIES += libkallsyms
 TOP_SRCDIR := $(abspath $(LOCAL_PATH))
 TARGET_C_INCLUDES += \
+  $(TOP_SRCDIR) \
   $(TOP_SRCDIR)/device_database
 
 include $(BUILD_EXECUTABLE)
