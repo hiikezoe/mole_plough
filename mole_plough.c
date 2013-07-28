@@ -618,11 +618,6 @@ main(int argc, char **argv)
   int offset = 0;
   int last_offset = 0;
   int work_offset = 0;
-  char *plugin_path;
-
-  plugin_path = get_plugin_path(argv[0]);
-  load_all_plugins(plugin_path);
-  free(plugin_path);
 
   offset = read_offset();
 
@@ -630,6 +625,12 @@ main(int argc, char **argv)
     if (argc >= 2 && !strcmp("dump", argv[1])) {
       dump_kernel_image(offset, argc, argv);
     } else {
+      char *plugin_path;
+
+      plugin_path = get_plugin_path(argv[0]);
+      load_all_plugins(plugin_path);
+      free(plugin_path);
+
       run_root_shell(offset);
     }
     exit(EXIT_SUCCESS);
