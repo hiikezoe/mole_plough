@@ -70,14 +70,14 @@ syscall_perf_event_open(uint32_t offset)
 
 struct cred;
 struct task_struct;
-struct linux_binprm;
 
 struct cred *(*prepare_kernel_cred)(struct task_struct *) = NULL;
 int (*commit_creds)(struct cred *) = NULL;
-int (*security_bprm_set_creds)(struct linux_binprm *) = NULL;
-int (*cap_bprm_set_creds)(struct linux_binprm *) = NULL;
-int (*original_bprm_set_creds)(struct linux_binprm *) = NULL;
-int (**security_ops_bprm_set_creds)(struct linux_binprm *) = NULL;
+
+static void *security_bprm_set_creds = NULL;
+static void *cap_bprm_set_creds = NULL;
+static void *original_bprm_set_creds = NULL;
+static void **security_ops_bprm_set_creds = NULL;
 
 static void *
 get_security_ops_bprm_set_creds(void *address)
