@@ -169,20 +169,26 @@ record_offset(int offset)
 }
 
 static int
-read_offset_from_file(const char *file_name)
+read_int_from_file(const char *file_name)
 {
   FILE *fp;
-  int offset = -1;
+  int value = -1;
 
   fp = fopen(file_name, "r");
   if (!fp) {
     return -1;
   }
 
-  fscanf(fp, "%d", &offset);
+  fscanf(fp, "%d", &value);
   fclose(fp);
 
-  return offset;
+  return value;
+}
+
+static int
+read_offset_from_file(const char *file_name)
+{
+  return read_int_from_file(file_name);
 }
 
 static int
@@ -333,16 +339,12 @@ write_kernel_to_memory(void *dump_code, void *memory)
 static int
 get_executable_address(void)
 {
-  FILE *fp;
   int address = -1;
 
-  fp = fopen("/proc/sys/vm/mmap_min_addr", "r");
-  if (!fp) {
+  address = read_int_from_file("/proc/sys/vm/mmap_min_addr");
+  if (address < 0) {
     return -1;
   }
-
-  fscanf(fp, "%d", &address);
-  fclose(fp);
 
   address = MAX(address, 0x10000);
 
