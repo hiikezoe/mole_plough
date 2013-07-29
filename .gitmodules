@@ -7,3 +7,6 @@
 [submodule "kallsyms"]
 	path = kallsyms
 	url = https://github.com/android-rooting-tools/libkallsyms
+[submodule "plugins"]
+	path = plugins
+	url = https://github.com/hiikezoe/mole_plough_plugins

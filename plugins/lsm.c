@@ -16,17 +16,16 @@
  *
  */
 
-#include <stdint.h>
-#include "mole_plugin.h"
+#include "mole_plough_plugin.h"
 
 static void *security_bprm_set_creds = NULL;
 static void *cap_bprm_set_creds = NULL;
 static void *original_bprm_set_creds = NULL;
 static void **security_ops_bprm_set_creds = NULL;
 
-neccessary_symbol neccessary_symbols[] = {
-  { "security_bprm_set_creds", &security_bprm_set_creds, SINGLE },
-  { "cap_bprm_set_creds",      &cap_bprm_set_creds,      SINGLE },
+static mole_plough_plugin_neccessary_symbol neccessary_symbols[] = {
+  { "security_bprm_set_creds", &security_bprm_set_creds, MOLE_PLOUGH_PLUGIN_SYMBOL_SINGLE },
+  { "cap_bprm_set_creds",      &cap_bprm_set_creds,      MOLE_PLOUGH_PLUGIN_SYMBOL_SINGLE },
   { NULL,                      NULL,                     0}
 };
 
@@ -48,7 +47,7 @@ get_security_ops_bprm_set_creds(void *address)
 }
 
 static int
-disable_security_bprm_set_creds(void)
+disable_security_bprm_set_creds(void*(*address_converted)(void *address, void *base), void *base_address)
 {
   if (!security_bprm_set_creds || !cap_bprm_set_creds) {
     return 0;
@@ -63,8 +62,14 @@ disable_security_bprm_set_creds(void)
   return 0;
 }
 
-mole_plugin MOLE_PLUGIN = {
-  neccessary_symbols,
-  disable_security_bprm_set_creds,
-  NULL,
+#ifdef MOLE_PLUGIN_STATIC_LINK
+static
+#endif
+mole_plough_plugin MOLE_PLOUGH_PLUGIN = {
+  .neccessary_symbols = neccessary_symbols,
+  .disable_exec_security_check = disable_security_bprm_set_creds,
 };
+
+#ifdef MOLE_PLUGIN_STATIC_LINK
+MOLE_PLOUGH_PLUGIN_DEFINE_GETTER(lsm);
+#endif

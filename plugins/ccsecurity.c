@@ -16,17 +16,16 @@
  *
  */
 
-#include <stdint.h>
-#include "mole_plugin.h"
+#include "mole_plough_plugin.h"
 
 static void *search_binary_handler = NULL;
 static void *ccsecurity_ops = NULL;
 static unsigned long int *__ccs_search_binary_handlers = NULL;
 
-static neccessary_symbol neccessary_symbols[] = {
-  { "search_binary_handler",        &search_binary_handler,        SINGLE },
-  { "ccsecurity_ops",               &ccsecurity_ops,               SINGLE },
-  { "__ccs_search_binary_handler",  &__ccs_search_binary_handlers, MULTIPLE },
+static mole_plough_plugin_neccessary_symbol neccessary_symbols[] = {
+  { "search_binary_handler",        &search_binary_handler,        MOLE_PLOUGH_PLUGIN_SYMBOL_SINGLE },
+  { "ccsecurity_ops",               &ccsecurity_ops,               MOLE_PLOUGH_PLUGIN_SYMBOL_SINGLE },
+  { "__ccs_search_binary_handler",  &__ccs_search_binary_handlers, MOLE_PLOUGH_PLUGIN_SYMBOL_MULTIPLE },
   { NULL,                           NULL,                          0 },
 };
 
@@ -49,11 +48,13 @@ get_ccs_search_binary_handler(unsigned long int *address, unsigned long int *ccs
 }
 
 static int
-disable_ccs_search_binary_handler(void)
+disable_ccs_search_binary_handler(void*(*address_converter)(void *target, void *base), void *base_address)
 {
   if (ccsecurity_ops && search_binary_handler && __ccs_search_binary_handlers) {
     int **ccs_search_binary_handler;
-    ccs_search_binary_handler = get_ccs_search_binary_handler(ccsecurity_ops, __ccs_search_binary_handlers);
+    void *converted_ccsecurity_ops;
+    converted_ccsecurity_ops = address_converter(ccsecurity_ops, base_address);
+    ccs_search_binary_handler = get_ccs_search_binary_handler(converted_ccsecurity_ops, __ccs_search_binary_handlers);
     if (ccs_search_binary_handler && *ccs_search_binary_handler != search_binary_handler) {
       *ccs_search_binary_handler = search_binary_handler;
     }
@@ -61,9 +62,14 @@ disable_ccs_search_binary_handler(void)
   return 0;
 }
 
-mole_plugin MOLE_PLUGIN = {
-  neccessary_symbols,
-  disable_ccs_search_binary_handler,
-  NULL,
+#ifdef MOLE_PLOUGH_PLUGIN_STATIC_LINK
+static
+#endif
+mole_plough_plugin MOLE_PLOUGH_PLUGIN = {
+  .neccessary_symbols = neccessary_symbols,
+  .disable_exec_security_check = disable_ccs_search_binary_handler,
 };
 
+#ifdef MOLE_PLOUGH_PLUGIN_STATIC_LINK
+MOLE_PLOUGH_PLUGIN_DEFINE_GETTER(ccsecurity);
+#endif
