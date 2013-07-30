@@ -401,6 +401,7 @@ static bool
 setup_kernel_functions(int offset)
 {
   void *kernel;
+  kallsyms *kallsyms;
 
   kernel = malloc(KERNEL_SIZE);
   if (!kernel) {
@@ -408,12 +409,13 @@ setup_kernel_functions(int offset)
   }
 
   dump_kernel_to_memory(offset, kernel);
-  if (kallsyms_in_memory_init(kernel, KERNEL_SIZE)) {
-    commit_creds = (void*)kallsyms_in_memory_lookup_name("commit_creds");
-    prepare_kernel_cred = (void*)kallsyms_in_memory_lookup_name("prepare_kernel_cred");
+  kallsyms = kallsyms_in_memory_init(kernel, KERNEL_SIZE);
+  if (kallsyms) {
+    commit_creds = (void*)kallsyms_in_memory_lookup_name(kallsyms, "commit_creds");
+    prepare_kernel_cred = (void*)kallsyms_in_memory_lookup_name(kallsyms, "prepare_kernel_cred");
 
     if (plugin_handler) {
-      mole_plough_plugin_resolve_symbols(plugin_handler);
+      mole_plough_plugin_resolve_symbols(kallsyms, plugin_handler);
     }
   }
   free(kernel);
