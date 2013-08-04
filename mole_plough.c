@@ -87,7 +87,7 @@ int (*commit_creds)(struct cred *) = NULL;
 int
 obtain_root_privilege(void)
 {
-  mole_plough_plugin_disable_exec_security_check(plugin_handler, address_converter, NULL);
+  mole_plough_plugin_disable_exec_check(plugin_handler, address_converter, NULL);
 
   return commit_creds(prepare_kernel_cred(0));
 }
